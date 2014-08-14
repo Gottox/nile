@@ -1,6 +1,8 @@
-all: nile
-nile: nile.c
+LDFLAGS+= -larchive -lcrypto
+CFLAGS+= -Wall -O0 -g
 
-install:
-	${INSTALL_PROGRAM} bsdiff bspatch ${PREFIX}/bin
-	${INSTALL_MAN} bsdiff.1 bspatch.1 ${PREFIX}/man/man1
+all: nile
+clean:
+	rm nile
+nile: main.c nile.c
+.PHONY: clean all

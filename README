@@ -1,0 +1,37 @@
+# nile
+
+nile is a binary diffing tool
+
+## Algoritm
+
+nile uses the same algorithm as bsdiff.
+
+## Format
+
+The format:
+```
+0    MAGIC     7 8 COMPRESSION 15
+16           MD5-OLD           31
+32           MD5-NEW           47
+48         DIFFERENCES        ...
+```
+
+* ```MAGIC```: static string ```NILE1.0 ```
+* ```COMPRESSION```: stack of compression algorithms
+* ```MD5-OLD```: md5sum of the old uncompressed file
+* ```MD5-NEW```: md5sum of the new uncompressed file
+* ```DATA```: a list of differences described below
+
+### Difference
+
+* all numbers are network byte order
+
+```
+0     SKIP     3 4  OLDLENGTH   7
+8  NEWLENGTH  11 12  NEWDATA  ...
+```
+
+* ```SKIP```: skip X bytes till next difference
+* ```OLDLENGTH```: length of difference in old data
+* ```NEWLENGTH```: length of difference in new data
+* ```NEWDATA```: new data with length descripbed in ```NEWLENGTH```
