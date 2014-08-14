@@ -13,6 +13,24 @@
 
 const char MAGIC[] = "NILE1.0 ";
 
+static off_t offtin(char *buf)
+{
+	off_t y;
+
+	y=buf[7]&0x7F;
+	y=y*256;y+=buf[6];
+	y=y*256;y+=buf[5];
+	y=y*256;y+=buf[4];
+	y=y*256;y+=buf[3];
+	y=y*256;y+=buf[2];
+	y=y*256;y+=buf[1];
+	y=y*256;y+=buf[0];
+
+	if(buf[7]&0x80) y=-y;
+
+	return y;
+}
+
 static void offtout(off_t x, char *buf)
 {
 	off_t y;
@@ -32,16 +50,16 @@ static void offtout(off_t x, char *buf)
 }
 
 static int
-buildhash(char *shasum, FILE *f) {
+buildhash(char *md5sum, FILE *f) {
 	char buf[BUFSIZ];
 	int size = 0;
-	MD5_CTX sha1;
+	MD5_CTX md5;
 
-	MD5_Init(&sha1);
+	MD5_Init(&md5);
 	while((size = fread(buf, 1, sizeof(buf), f)) > 0) {
-		MD5_Update(&sha1, buf, size);
+		MD5_Update(&md5, buf, size);
 	}
-	MD5_Final((unsigned char *)shasum, &sha1);
+	MD5_Final((unsigned char *)md5sum, &md5);
 	rewind(f);
 	return 0;
 }
@@ -212,7 +230,7 @@ nileDiff(FILE *oldfile, FILE *newfile, FILE *output, enum Options options) {
 	int rv = 1;
 	off_t oldoff = 0, newoff = 0, lastSkip = 0;
 	size_t oldsize, newsize;
-	char *olddata = NULL, *newdata = NULL, shasum[MD5_DIGEST_LENGTH] = { 0 }, header[8];
+	char *olddata = NULL, *newdata = NULL, md5sum[MD5_DIGEST_LENGTH] = { 0 }, header[8];
 
 	if((oldsize = mapfile(oldfile, &olddata)) == -1)
 		rv = 1;
@@ -221,17 +239,17 @@ nileDiff(FILE *oldfile, FILE *newfile, FILE *output, enum Options options) {
 
 	fputs(MAGIC, output);
 
-	// newfile: uncompress and build sha1sum
+	// newfile: uncompress and build md5sum
 	if((newfile = uncompress(newfile, output, options)) == NULL)
 		goto diff_cleanup;
-	buildhash(shasum, newfile);
-	fwrite(shasum, sizeof(shasum), 1, output);
+	buildhash(md5sum, newfile);
+	fwrite(md5sum, sizeof(md5sum), 1, output);
 
-	// oldfile: uncompress and build sha1sum
+	// oldfile: uncompress and build md5sum
 	if((oldfile = uncompress(oldfile, NULL, options)) == NULL)
 		goto diff_cleanup;
-	buildhash(shasum, oldfile);
-	fwrite(shasum, sizeof(shasum), 1, output);
+	buildhash(md5sum, oldfile);
+	fwrite(md5sum, sizeof(md5sum), 1, output);
 
 	// Building Diff
 	for(oldoff = newoff = 0; oldoff < oldsize && newoff < newsize;) {
@@ -257,6 +275,60 @@ diff_cleanup:
 int
 nilePatch(FILE *oldfile, FILE *patch, FILE *output, enum Options options) {
 	int rv = 0;
+	char difference[3*8], header[8], buf[BUFSIZ];
+	char oldmd5[MD5_DIGEST_LENGTH] = { 0 }, newmd5[MD5_DIGEST_LENGTH] = { 0 };
+	int size;
+
+	off_t skip, oldsize, newsize;
+
+	if(fread(header, sizeof(header), 1, patch) != 1 ||
+			memcmp(header, MAGIC, sizeof(header)) != 0) {
+		fprintf(stderr, "patchfile: invalid magic\n");
+		goto patch_cleanup;
+	}
+
+	if(fread(header, sizeof(header), 1, patch) != 1) {
+		fprintf(stderr, "patchfile: invalid header\n");
+		goto patch_cleanup;
+	}
+
+	if(fread(oldmd5, sizeof(oldmd5), 1, patch) != 1) {
+		fprintf(stderr, "patchfile: invalid header\n");
+		goto patch_cleanup;
+	}
+	if(fread(newmd5, sizeof(newmd5), 1, patch) != 1) {
+		fprintf(stderr, "patchfile: invalid header\n");
+		goto patch_cleanup;
+	}
+
+	while((size = fread(difference, sizeof(difference), 1, patch)) == 1) {
+		skip = offtin(difference);
+		oldsize = offtin(difference+8);
+		newsize = offtin(difference+16);
+		fprintf(stderr, "skip %li oldsize: %li newsize: %li\n", skip, oldsize,
+				newsize);
+
+		while((size = fread(buf, 1, MIN(sizeof(buf), skip), oldfile)) > 0) {
+			fwrite(buf, size, 1, output);
+			skip -= size;
+		}
+
+		fseek(oldfile, oldsize, SEEK_CUR);
+
+		while((size = fread(buf, 1, MIN(sizeof(buf), newsize), patch)) > 0) {
+			fwrite(buf, size, 1, output);
+			newsize -= size;
+		}
+	}
+	if(size < 0) {
+		perror("patchfile");
+		rv = 1;
+	}
+	else if(size != 0) {
+		fprintf(stderr, "patchfile: premature end of file %i\n", size);
+		rv = 1;
+	}
+patch_cleanup:
 	return rv;
 }
 
