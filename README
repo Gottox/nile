@@ -4,7 +4,7 @@ nile is a binary diffing tool
 
 ## Algoritm
 
-nile uses the same algorithm as bsdiff.
+nile uses a block based LCS algoritm to generate deltas
 
 ## Format
 
